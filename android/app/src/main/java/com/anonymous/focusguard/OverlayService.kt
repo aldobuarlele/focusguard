@@ -133,7 +133,7 @@ class OverlayService : Service() {
                 isOverlayShowing = true
                 currentBlockedApp = packageName
                 
-                Log.d(TAG, "✅ OVERLAY SHOWN - PHASE 1: $displayName BLOCKED")
+                Log.d(TAG, "✅ OVERLAY SHOWN - FOCUSGUARD: $displayName BLOCKED")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to show overlay", e)
             }

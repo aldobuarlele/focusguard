@@ -2,9 +2,10 @@ package com.anonymous.focusguard
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.util.Log
-import androidx.annotation.RequiresApi
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
@@ -16,6 +17,11 @@ class FocusGuardModule(reactContext: ReactApplicationContext) : ReactContextBase
     }
     
     private val appContext: Context = reactContext.applicationContext
+    
+    // Native Database Helper - accessible by services even when JS is dead
+    private val dbHelper: DatabaseHelper by lazy {
+        DatabaseHelper.getInstance(appContext)
+    }
     
     override fun getName(): String {
         return MODULE_NAME
@@ -173,6 +179,146 @@ class FocusGuardModule(reactContext: ReactApplicationContext) : ReactContextBase
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open accessibility settings", e)
             promise.reject("SETTINGS_OPEN_FAILED", "Failed to open settings: ${e.message}")
+        }
+    }
+    
+    // MARK: - App Fetcher Methods (Phase 2)
+    
+    /**
+     * Get all installed launchable apps on the device
+     * Filters only apps that have a launcher intent (user-facing apps)
+     * Excludes our own package
+     * 
+     * @param promise Returns WritableArray of objects with packageName and appName
+     */
+    @ReactMethod
+    fun getInstalledApps(promise: Promise) {
+        Log.d(TAG, "Fetching installed apps")
+        
+        try {
+            val pm = appContext.packageManager
+            val myPackageName = appContext.packageName
+            
+            // Get all installed packages
+            val installedPackages = pm.getInstalledPackages(PackageManager.GET_META_DATA)
+            
+            val appsArray = Arguments.createArray()
+            
+            for (packageInfo in installedPackages) {
+                val pkgName = packageInfo.packageName
+                
+                // Skip our own package
+                if (pkgName == myPackageName) {
+                    continue
+                }
+                
+                // Check if app has a launch intent (is a launchable user-facing app)
+                val launchIntent = pm.getLaunchIntentForPackage(pkgName)
+                if (launchIntent != null) {
+                    try {
+                        val appInfo = packageInfo.applicationInfo ?: run {
+                            Log.w(TAG, "ApplicationInfo is null for package: $pkgName")
+                            throw NullPointerException("ApplicationInfo is null")
+                        }
+                        val appName = pm.getApplicationLabel(appInfo).toString()
+                        
+                        val appMap = Arguments.createMap().apply {
+                            putString("packageName", pkgName)
+                            putString("appName", appName)
+                        }
+                        
+                        appsArray.pushMap(appMap)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to get info for package: $pkgName", e)
+                    }
+                }
+            }
+            
+            Log.d(TAG, "Found ${appsArray.size()} launchable apps")
+            promise.resolve(appsArray)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get installed apps", e)
+            promise.reject("GET_APPS_FAILED", "Failed to get installed apps: ${e.message}")
+        }
+    }
+    
+    // MARK: - Database Methods (Phase 2)
+    
+    /**
+     * Update or create a blocking rule for an app
+     * 
+     * @param packageName The package name of the app to block
+     * @param level The block level (0=none, 1=nudge, 2=challenge, 3=hard block)
+     * @param promise Returns true if successful
+     */
+    @ReactMethod
+    fun updateAppRule(packageName: String, level: Int, promise: Promise) {
+        Log.d(TAG, "Updating app rule: $packageName -> level $level")
+        
+        try {
+            val success = dbHelper.updateRule(packageName, level)
+            
+            if (success) {
+                Log.d(TAG, "Successfully updated rule for $packageName")
+                promise.resolve(true)
+            } else {
+                Log.e(TAG, "Failed to update rule for $packageName")
+                promise.reject("UPDATE_RULE_FAILED", "Failed to update rule in database")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception updating app rule", e)
+            promise.reject("UPDATE_RULE_FAILED", "Failed to update app rule: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get all blocking rules from the database
+     * 
+     * @param promise Returns WritableArray of objects with packageName and blockLevel
+     */
+    @ReactMethod
+    fun getAllAppRules(promise: Promise) {
+        Log.d(TAG, "Fetching all app rules")
+        
+        try {
+            val rules = dbHelper.getAllRules()
+            val rulesArray = Arguments.createArray()
+            
+            for (rule in rules) {
+                val ruleMap = Arguments.createMap().apply {
+                    putString("packageName", rule["packageName"] as String)
+                    putInt("blockLevel", rule["blockLevel"] as Int)
+                }
+                rulesArray.pushMap(ruleMap)
+            }
+            
+            Log.d(TAG, "Retrieved ${rulesArray.size()} rules from database")
+            promise.resolve(rulesArray)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get app rules", e)
+            promise.reject("GET_RULES_FAILED", "Failed to get app rules: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get the block level for a specific app
+     * Used by AccessibilityDetectionService to check blocking status
+     * 
+     * @param packageName The package name to check
+     * @param promise Returns the block level (0 if not blocked)
+     */
+    @ReactMethod
+    fun getAppRuleLevel(packageName: String, promise: Promise) {
+        Log.d(TAG, "Getting rule level for: $packageName")
+        
+        try {
+            val level = dbHelper.getRuleLevel(packageName)
+            promise.resolve(level)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get rule level for $packageName", e)
+            promise.reject("GET_LEVEL_FAILED", "Failed to get rule level: ${e.message}")
         }
     }
     

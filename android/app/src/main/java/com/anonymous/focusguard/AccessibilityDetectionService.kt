@@ -3,18 +3,20 @@ package com.anonymous.focusguard
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import android.os.Build
 
 /**
  * AccessibilityDetectionService - Core detection engine for FocusGuard
  * 
- * SIMPLIFIED LOGIC (Emergency Fix):
- * 1. ONLY listen to TYPE_WINDOW_STATE_CHANGED (no content changed noise)
- * 2. If target app -> show overlay
- * 3. If ANY other app (including system UI, launchers) -> hide overlay
- * 4. Self-package is ignored
+ * PURE STATE MACHINE (Phase 2.2):
+ * 1. ONLY listen to TYPE_WINDOW_STATE_CHANGED
+ * 2. STRICTLY IGNORE noise: systemui, android, null, empty, self
+ * 3. Query SQLite database for block level of valid apps
+ * 4. If blockLevel > 0 -> show overlay
+ * 5. If blockLevel == 0 -> hide overlay (e.g., com.miui.home)
+ * 6. Let previous valid state persist when noise events fire
  */
 class AccessibilityDetectionService : AccessibilityService() {
     
@@ -23,18 +25,6 @@ class AccessibilityDetectionService : AccessibilityService() {
         
         // Action for resetting service state from FocusGuardModule
         const val ACTION_RESET_SERVICE = "com.focusguard.ACTION_RESET_SERVICE"
-        
-        // Phase 1: Target Settings and Chrome for testing
-        private val TARGET_APPS = setOf(
-            "com.android.settings",  // Android Settings
-            "com.android.chrome"     // Google Chrome
-        )
-        
-        // Map package names to display names
-        private val APP_DISPLAY_NAMES = mapOf(
-            "com.android.settings" to "Settings",
-            "com.android.chrome" to "Chrome"
-        )
     }
     
     private var currentForegroundApp: String? = null
@@ -42,9 +32,16 @@ class AccessibilityDetectionService : AccessibilityService() {
     // Dynamic self-package name (fetched at runtime, not hardcoded)
     private lateinit var ourPackageName: String
     
+    // Database Helper for dynamic rule lookup
+    private lateinit var databaseHelper: DatabaseHelper
+    
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
+        
+        // Initialize database helper for dynamic rule lookup
+        databaseHelper = DatabaseHelper.getInstance(this)
+        Log.d(TAG, "Database helper initialized")
         
         // CRITICAL: Reset state on service (re)start
         currentForegroundApp = null
@@ -70,7 +67,7 @@ class AccessibilityDetectionService : AccessibilityService() {
         
         this.serviceInfo = info
         
-        Log.d(TAG, "Service configured. Target apps: ${TARGET_APPS.joinToString()}")
+        Log.d(TAG, "Service configured for pure state machine (no debouncer)")
         Log.d(TAG, "Self-package exclusion active: $ourPackageName")
     }
     
@@ -95,40 +92,39 @@ class AccessibilityDetectionService : AccessibilityService() {
             return
         }
         
-        val packageName = event.packageName?.toString() ?: return
+        val packageName = event.packageName?.toString()
         handleForegroundAppChange(packageName)
     }
     
     /**
-     * BRUTALLY SIMPLE LOGIC:
-     * 1. If self-package -> ignore
-     * 2. If target app -> show overlay
-     * 3. ANY other package -> hide overlay
+     * PURE STATE MACHINE (Phase 2.2):
+     * 
+     * 1. Strict Noise Filter: Ignore system UI, empty packages, and our own app
+     * 2. Process Valid Packages: Query database and show/hide overlay accordingly
+     * 3. Let previous valid state persist when noise events fire
      */
-    private fun handleForegroundAppChange(packageName: String) {
-        // 1. Ignore our own package (prevents self-trigger loop)
-        if (packageName == ourPackageName) {
-            Log.d(TAG, "IGNORING: Self-package detected ($packageName)")
-            return
+    private fun handleForegroundAppChange(packageName: String?) {
+        // 1. Strict Noise Filter: Ignore system UI, empty packages, and our own app
+        if (packageName.isNullOrEmpty() || 
+            packageName == "android" || 
+            packageName == "com.android.systemui" || 
+            packageName == ourPackageName) {
+            Log.d(TAG, "IGNORING noise: $packageName - letting previous state persist")
+            return // Do nothing. Let the previous valid state persist.
         }
+
+        // 2. Process Valid Packages (like com.android.chrome, com.miui.home)
+        val blockLevel = databaseHelper.getRuleLevel(packageName)
+        Log.d(TAG, "Valid app: $packageName, blockLevel: $blockLevel")
         
-        // Skip if same app (no actual change)
-        if (packageName == currentForegroundApp) {
-            return
-        }
-        
-        Log.d(TAG, "Foreground app changed to: $packageName")
-        
-        // 2. Check if this is a target app -> show overlay
-        if (TARGET_APPS.contains(packageName)) {
-            Log.d(TAG, "TARGET APP DETECTED: $packageName")
+        if (blockLevel > 0) {
+            Log.d(TAG, "BLOCKED APP DETECTED: $packageName (Level $blockLevel)")
             currentForegroundApp = packageName
             triggerOverlayDirectly(packageName)
         } else {
-            // 3. ANY other app (system UI, launcher, non-target) -> hide overlay
-            Log.d(TAG, "Non-target app: $packageName - Hiding overlay")
+            Log.d(TAG, "Non-blocked app: $packageName - Hiding overlay")
+            currentForegroundApp = packageName
             hideOverlayDirectly()
-            currentForegroundApp = null
         }
     }
     

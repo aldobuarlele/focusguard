@@ -35,7 +35,7 @@ class OverlayView(context: Context) : FrameLayout(context) {
         
         // Create the blocking text view
         blockingTextView = TextView(context).apply {
-            text = "PHASE 1: APP BLOCKED"
+            text = "FOCUSGUARD: APP BLOCKED"
             textSize = 24f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -59,7 +59,7 @@ class OverlayView(context: Context) : FrameLayout(context) {
     }
     
     fun updateAppName(appName: String) {
-        blockingTextView.text = "PHASE 1: $appName BLOCKED"
+        blockingTextView.text = "FOCUSGUARD: $appName BLOCKED"
     }
     
     /**
