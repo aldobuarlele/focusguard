@@ -1,0 +1,5 @@
+<resources>
+  <string name="app_name">focusguard</string>
+  <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
+  <string name="accessibility_service_description">FocusGuard needs accessibility permission to detect which apps you\'re using and help you stay focused.</string>
+</resources>
