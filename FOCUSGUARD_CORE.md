@@ -1,4 +1,4 @@
-# 🛑 GEMINI REFRESH PROTOCOL & STRICT CONTEXT ANCHOR v3.1 🛑
+# 🛑 GEMINI REFRESH PROTOCOL & STRICT CONTEXT ANCHOR v4.0 🛑
 **Project Name:** FocusGuard (Android Social Media Blocker)
 **Primary Goal:** Membatasi penggunaan media sosial melalui sistem *leveling blocker* dan gamifikasi untuk meningkatkan produktivitas, diproses sepenuhnya secara lokal (On-Device).
 
@@ -24,7 +24,7 @@ Aplikasi ini menggunakan arsitektur **Hybrid dengan Heavy Native Modules** untuk
   3. `DevicePolicyManager` (Device Admin): Mencegah aplikasi di-*uninstall* lewat Settings Android.
   4. `WorkManager`: Mengeksekusi tugas *background* (Laporan mingguan & sinkronisasi log).
 
-### 2.1 PHASE 1 & 2 TECHNICAL LEDGER (DO NOT REGRESS)
+### 2.1 PHASE 1, 2, & 3 TECHNICAL LEDGER (DO NOT REGRESS)
 Aturan teknis yang sudah teruji berdarah-darah dan TIDAK BOLEH diubah oleh AI:
 - **Direct Intent:** `AccessibilityDetectionService` memanggil `OverlayService` langsung via `Intent`, BUKAN lewat RN Bridge.
 - **Window Flags:** `OverlayView` wajib menggunakan `FLAG_NOT_FOCUSABLE` (mencegah *infinite loop*) dan `isClickable = true`.
@@ -33,10 +33,13 @@ Aturan teknis yang sudah teruji berdarah-darah dan TIDAK BOLEH diubah oleh AI:
 - **Active Window Verification:** Untuk `TYPE_WINDOWS_CHANGED`, jangan percaya `event.packageName`. Selalu gunakan `rootInActiveWindow?.packageName`. Jika *null*, abaikan (*skip*) karena OS sedang beranimasi.
 - **No Debouncer:** Jangan gunakan timer/delay `Handler` untuk menyembunyikan overlay. Percayakan pada *state machine* murni.
 - **Package Visibility:** Android 11+ butuh deklarasi `<queries>` dengan `intent.action.MAIN` di `AndroidManifest.xml` untuk membaca daftar aplikasi.
+- **The Focus/Keyboard Paradox (Level 2):** DILARANG memunculkan *keyboard* bawaan OS pada *Overlay* karena akan merusak `FLAG_NOT_FOCUSABLE`. Gunakan *Custom Programmatic NumPad* yang digambar langsung di Kotlin.
+- **Hybrid Bypass Engine:** Gunakan `ConcurrentHashMap` untuk membaca kecepatan O(1) di Memory, dan `BypassRecords` (SQLite) untuk bertahan dari *Service Kill*.
+- **Zero-Battery Notifications:** DILARANG menggunakan `AlarmManager` untuk menghitung mundur durasi bypass (gagal di Android 12+). Gunakan murni kapabilitas OS via `.setUsesChronometer(true)` dan `.setTimeoutAfter(durationMs)`.
 
 ## 3. CORE FEATURES & LEVELING LOGIC
 - **Level 1 (Awareness/Nudge):** Pop-up transparan ("Yakin mau buka aplikasi ini?"). Menyediakan tombol "Lanjutkan" (memberikan *bypass* X menit) dan "Tutup".
-- **Level 2 (Friction/Gamification):** *Overlay UI*. Memaksa *user* menyelesaikan tantangan kognitif (Matematika dinamis kompleks atau Soal Sejarah dari DB lokal) untuk mendapatkan *bypass* waktu.
+- **Level 2 (Friction/Gamification):** *Overlay UI*. Memaksa *user* menyelesaikan tantangan kognitif (Matematika dinamis kompleks atau Soal Sejarah dari DB lokal) untuk mendapatkan *bypass* waktu. *(Catatan: Soal Sejarah saat ini di-pending karena penyesuaian arsitektur NumPad).*
 - **Level 3 (Discipline/Hard Block):** *Overlay Full-Screen*. Memblokir akses secara total tanpa opsi *bypass* atau tombol batal.
 - **Weekly Report:** *WorkManager* berjalan setiap Minggu 08:00 pagi, melakukan *query* ke SQLite, dan mengirim *Local Notification* rekap waktu yang dihemat.
 
@@ -72,12 +75,13 @@ Pengerjaan harus dilakukan berurutan. Jangan melompat ke fase berikutnya sebelum
   - Hubungkan interaksi UI dengan *Native Bridge* untuk menyimpan status blokir.
   - Selesaikan *State Machine* (kebal Quick-Switch dan animasi Home).
 
-- **[CURRENT PHASE] Phase 3: Core Blocker Logic & Gamification**
-  - Implementasi eksekusi Level 1 (Nudge), Level 2 (Math/History generator), dan Level 3 (Hard Block).
-  - Tulis logika pengaturan durasi *bypass*.
-  - *Testing Gate 2: Usability test. Coba tembus sistem blocker menggunakan multitasking/recent apps. Pastikan state bypass bekerja akurat.*
+- **[COMPLETED] Phase 3: Core Blocker Logic & Gamification**
+  - Implementasi eksekusi Level 1 (Nudge), Level 2 (Custom NumPad Math Generator), dan Level 3 (Hard Block).
+  - Tulis logika pengaturan durasi *bypass* dengan Hybrid Cache (Memori + SQLite).
+  - UI Polishing: Search Bar, Dynamic Durations, Zero-Battery OS Notifications, dan indikator *Bypass Active* di RN.
+  - *Testing Gate 2: Usability test. Coba tembus sistem blocker menggunakan multitasking/recent apps. Pastikan state bypass bekerja akurat. (LULUS)*
 
-- **[PENDING] Phase 4: Ironclad Security & Background Jobs**
+- **[CURRENT PHASE] Phase 4: Ironclad Security & Background Jobs**
   - Integrasi `DevicePolicyManager` agar aplikasi tidak bisa di-*uninstall* standar.
   - Kunci rute navigasi Settings di dalam aplikasi dengan Gamifikasi.
   - Setup `WorkManager` untuk menjalankan agregasi data mingguan.
