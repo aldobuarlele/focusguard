@@ -10,13 +10,14 @@ import android.view.accessibility.AccessibilityEvent
 /**
  * AccessibilityDetectionService - Core detection engine for FocusGuard
  * 
- * PURE STATE MACHINE (Phase 2.2):
- * 1. ONLY listen to TYPE_WINDOW_STATE_CHANGED
- * 2. STRICTLY IGNORE noise: systemui, android, null, empty, self
- * 3. Query SQLite database for block level of valid apps
- * 4. If blockLevel > 0 -> show overlay
- * 5. If blockLevel == 0 -> hide overlay (e.g., com.miui.home)
- * 6. Let previous valid state persist when noise events fire
+ * FINAL STATE MACHINE (Phase 2.4 - TYPE_WINDOWS_CHANGED):
+ * 1. Listen to TYPE_WINDOW_STATE_CHANGED and TYPE_WINDOWS_CHANGED (NO content changes)
+ * 2. For TYPE_WINDOWS_CHANGED: Use rootInActiveWindow for true foreground, skip if null
+ * 3. Ultra-fast O(1) noise filter: systemui, android, null, empty, self
+ * 4. State persistence: Skip if trueForegroundPackage == currentForegroundApp
+ * 5. Query SQLite database for block level of valid apps
+ * 6. If blockLevel > 0 -> show overlay
+ * 7. If blockLevel == 0 -> hide overlay
  */
 class AccessibilityDetectionService : AccessibilityService() {
     
@@ -51,10 +52,12 @@ class AccessibilityDetectionService : AccessibilityService() {
         ourPackageName = applicationContext.packageName
         Log.d(TAG, "Our package name (dynamic): $ourPackageName")
         
-        // Configure the service - ONLY TYPE_WINDOW_STATE_CHANGED
+        // Configure the service - Listen to STATE_CHANGED and WINDOWS_CHANGED
         val info = AccessibilityServiceInfo().apply {
-            // CRITICAL: ONLY listen to TYPE_WINDOW_STATE_CHANGED (no content changed)
-            eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            // TYPE_WINDOW_STATE_CHANGED: App launches
+            // TYPE_WINDOWS_CHANGED: Window stack changes (replaces noisy CONTENT_CHANGED)
+            eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or 
+                         AccessibilityEvent.TYPE_WINDOWS_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or 
                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
@@ -67,7 +70,7 @@ class AccessibilityDetectionService : AccessibilityService() {
         
         this.serviceInfo = info
         
-        Log.d(TAG, "Service configured for pure state machine (no debouncer)")
+        Log.d(TAG, "Service configured for final state machine (TYPE_WINDOWS_CHANGED)")
         Log.d(TAG, "Self-package exclusion active: $ourPackageName")
     }
     
@@ -87,43 +90,60 @@ class AccessibilityDetectionService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
         
-        // ONLY process TYPE_WINDOW_STATE_CHANGED - ignore everything else
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        // Process TYPE_WINDOW_STATE_CHANGED and TYPE_WINDOWS_CHANGED only
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && 
+            event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
             return
         }
         
         val packageName = event.packageName?.toString()
-        handleForegroundAppChange(packageName)
+        val eventType = event.eventType
+        handleForegroundAppChange(packageName, eventType)
     }
     
     /**
-     * PURE STATE MACHINE (Phase 2.2):
+     * BULLETPROOF STATE MACHINE (Phase 2.4):
      * 
-     * 1. Strict Noise Filter: Ignore system UI, empty packages, and our own app
-     * 2. Process Valid Packages: Query database and show/hide overlay accordingly
-     * 3. Let previous valid state persist when noise events fire
+     * 1. Resolve true foreground package based on event type
+     * 2. For TYPE_WINDOWS_CHANGED: Use rootInActiveWindow, skip if null
+     * 3. Strict Noise Filter: Ignore system UI, empty packages, and our own app
+     * 4. State Persistence: Skip if app hasn't changed (battery saver)
+     * 5. Execute overlay logic based on database rule level
      */
-    private fun handleForegroundAppChange(packageName: String?) {
-        // 1. Strict Noise Filter: Ignore system UI, empty packages, and our own app
-        if (packageName.isNullOrEmpty() || 
-            packageName == "android" || 
-            packageName == "com.android.systemui" || 
-            packageName == ourPackageName) {
-            Log.d(TAG, "IGNORING noise: $packageName - letting previous state persist")
-            return // Do nothing. Let the previous valid state persist.
+    private fun handleForegroundAppChange(eventPackageName: String?, eventType: Int) {
+        // Step 1: Resolve True Foreground Package
+        val trueForegroundPackage = when (eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> eventPackageName
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                val activeWindowPackage = rootInActiveWindow?.packageName?.toString()
+                if (activeWindowPackage == null) {
+                    return // OS is animating. Skip this noise.
+                }
+                activeWindowPackage
+            }
+            else -> eventPackageName
         }
 
-        // 2. Process Valid Packages (like com.android.chrome, com.miui.home)
-        val blockLevel = databaseHelper.getRuleLevel(packageName)
-        Log.d(TAG, "Valid app: $packageName, blockLevel: $blockLevel")
+        // Step 2: Strict Noise Filter
+        if (trueForegroundPackage.isNullOrEmpty() || 
+            trueForegroundPackage == "android" || 
+            trueForegroundPackage == "com.android.systemui" || 
+            trueForegroundPackage == ourPackageName) {
+            return
+        }
+
+        // Step 3: State Persistence (Battery Saver)
+        if (trueForegroundPackage == currentForegroundApp) {
+            return // App hasn't changed, do nothing
+        }
+
+        // Step 4: Execute Overlay Logic
+        val blockLevel = databaseHelper.getRuleLevel(trueForegroundPackage)
+        currentForegroundApp = trueForegroundPackage // Update state
         
         if (blockLevel > 0) {
-            Log.d(TAG, "BLOCKED APP DETECTED: $packageName (Level $blockLevel)")
-            currentForegroundApp = packageName
-            triggerOverlayDirectly(packageName)
+            triggerOverlayDirectly(trueForegroundPackage)
         } else {
-            Log.d(TAG, "Non-blocked app: $packageName - Hiding overlay")
-            currentForegroundApp = packageName
             hideOverlayDirectly()
         }
     }
@@ -139,7 +159,6 @@ class AccessibilityDetectionService : AccessibilityService() {
                 putExtra(OverlayService.EXTRA_TARGET_APP, packageName)
             }
             startService(intent)
-            Log.d(TAG, "Direct Intent sent to OverlayService for: $packageName")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to trigger overlay directly", e)
         }
@@ -154,7 +173,6 @@ class AccessibilityDetectionService : AccessibilityService() {
                 action = OverlayService.ACTION_HIDE_OVERLAY
             }
             startService(intent)
-            Log.d(TAG, "Direct Intent sent to hide overlay")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to hide overlay directly", e)
         }
