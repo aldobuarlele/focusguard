@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * AccessibilityDetectionService - Core detection engine for FocusGuard
@@ -36,6 +37,9 @@ class AccessibilityDetectionService : AccessibilityService() {
     // Database Helper for dynamic rule lookup
     private lateinit var databaseHelper: DatabaseHelper
     
+    // Hybrid Bypass Cache: ConcurrentHashMap for O(1) reads, backed by SQLite for persistence
+    private val bypassCache = ConcurrentHashMap<String, Long>()
+    
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
@@ -43,6 +47,9 @@ class AccessibilityDetectionService : AccessibilityService() {
         // Initialize database helper for dynamic rule lookup
         databaseHelper = DatabaseHelper.getInstance(this)
         Log.d(TAG, "Database helper initialized")
+        
+        // Load all valid bypasses from database into cache to survive service restarts
+        loadBypassesIntoCache()
         
         // CRITICAL: Reset state on service (re)start
         currentForegroundApp = null
@@ -72,6 +79,7 @@ class AccessibilityDetectionService : AccessibilityService() {
         
         Log.d(TAG, "Service configured for final state machine (TYPE_WINDOWS_CHANGED)")
         Log.d(TAG, "Self-package exclusion active: $ourPackageName")
+        Log.d(TAG, "Bypass cache loaded with ${bypassCache.size} entries")
     }
     
     /**
@@ -102,13 +110,14 @@ class AccessibilityDetectionService : AccessibilityService() {
     }
     
     /**
-     * BULLETPROOF STATE MACHINE (Phase 2.4):
+     * BULLETPROOF STATE MACHINE (Phase 2.4) WITH HYBRID BYPASS CACHE:
      * 
      * 1. Resolve true foreground package based on event type
      * 2. For TYPE_WINDOWS_CHANGED: Use rootInActiveWindow, skip if null
      * 3. Strict Noise Filter: Ignore system UI, empty packages, and our own app
      * 4. State Persistence: Skip if app hasn't changed (battery saver)
-     * 5. Execute overlay logic based on database rule level
+     * 5. HYBRID BYPASS CHECK: Check bypass cache BEFORE database query
+     * 6. Execute overlay logic based on database rule level
      */
     private fun handleForegroundAppChange(eventPackageName: String?, eventType: Int) {
         // Step 1: Resolve True Foreground Package
@@ -137,26 +146,52 @@ class AccessibilityDetectionService : AccessibilityService() {
             return // App hasn't changed, do nothing
         }
 
-        // Step 4: Execute Overlay Logic
+        // Step 4: HYBRID BYPASS CHECK - O(1) cache lookup
+        val currentTime = System.currentTimeMillis()
+        val expiryTimestamp = bypassCache[trueForegroundPackage]
+        if (expiryTimestamp != null && currentTime < expiryTimestamp) {
+            Log.d(TAG, "Bypass active for $trueForegroundPackage, expiry: $expiryTimestamp, current: $currentTime")
+            currentForegroundApp = trueForegroundPackage // Update state
+            hideOverlayDirectly()
+            return // Allow access, skip blocking
+        }
+
+        // Step 5: Execute Overlay Logic
         val blockLevel = databaseHelper.getRuleLevel(trueForegroundPackage)
         currentForegroundApp = trueForegroundPackage // Update state
         
         if (blockLevel > 0) {
-            triggerOverlayDirectly(trueForegroundPackage)
+            triggerOverlayDirectly(trueForegroundPackage, blockLevel)
         } else {
             hideOverlayDirectly()
         }
     }
     
     /**
+     * Load all valid bypasses from database into memory cache
+     */
+    private fun loadBypassesIntoCache() {
+        try {
+            bypassCache.clear()
+            val validBypasses = databaseHelper.getAllValidBypasses()
+            bypassCache.putAll(validBypasses)
+            Log.d(TAG, "Loaded ${validBypasses.size} valid bypasses into cache")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load bypasses into cache", e)
+        }
+    }
+
+    /**
      * DIRECT SERVICE-TO-SERVICE COMMUNICATION
      * AccessibilityDetectionService -> OverlayService via Intent
+     * Now includes blockLevel for overlay customization
      */
-    private fun triggerOverlayDirectly(packageName: String) {
+    private fun triggerOverlayDirectly(packageName: String, blockLevel: Int) {
         try {
             val intent = Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_SHOW_OVERLAY
                 putExtra(OverlayService.EXTRA_TARGET_APP, packageName)
+                putExtra("EXTRA_BLOCK_LEVEL", blockLevel)
             }
             startService(intent)
         } catch (e: Exception) {

@@ -30,6 +30,9 @@ class OverlayService : Service() {
         // Legacy extra key (for backward compatibility)
         const val EXTRA_PACKAGE_NAME = "package_name"
         
+        // Extra key for block level (1=nudge, 2=challenge, 3=hard block)
+        const val EXTRA_BLOCK_LEVEL = "EXTRA_BLOCK_LEVEL"
+        
         // Map package names to display names
         private val APP_DISPLAY_NAMES = mapOf(
             "com.android.settings" to "Settings",
@@ -83,8 +86,10 @@ class OverlayService : Service() {
                         return START_STICKY
                     }
                     
-                    Log.d(TAG, "ACTION_SHOW_OVERLAY received for: $targetApp")
-                    showOverlay(targetApp)
+                    // Extract block level from intent (default to 3 for hard block)
+                    val blockLevel = intent.getIntExtra(EXTRA_BLOCK_LEVEL, 3)
+                    Log.d(TAG, "ACTION_SHOW_OVERLAY received for: $targetApp with blockLevel: $blockLevel")
+                    showOverlay(targetApp, blockLevel)
                 } else {
                     Log.w(TAG, "ACTION_SHOW_OVERLAY received but no target app specified")
                 }
@@ -102,8 +107,8 @@ class OverlayService : Service() {
         return START_STICKY
     }
     
-    private fun showOverlay(packageName: String) {
-        Log.d(TAG, "Showing overlay for package: $packageName")
+    private fun showOverlay(packageName: String, blockLevel: Int) {
+        Log.d(TAG, "Showing overlay for package: $packageName with blockLevel: $blockLevel")
         
         // If already showing for same app, don't recreate
         if (isOverlayShowing && currentBlockedApp == packageName) {
@@ -121,9 +126,9 @@ class OverlayService : Service() {
                 // Get display name for the app
                 val displayName = APP_DISPLAY_NAMES[packageName] ?: packageName
                 
-                // Create and setup overlay view
+                // Create and setup overlay view with block level
                 overlayView = OverlayView(this).apply {
-                    updateAppName(displayName)
+                    showOverlay(packageName, blockLevel)
                 }
                 
                 // Add overlay to window using CRITICAL non-touchable flags
@@ -133,7 +138,7 @@ class OverlayService : Service() {
                 isOverlayShowing = true
                 currentBlockedApp = packageName
                 
-                Log.d(TAG, "✅ OVERLAY SHOWN - FOCUSGUARD: $displayName BLOCKED")
+                Log.d(TAG, "✅ OVERLAY SHOWN - FOCUSGUARD: $displayName BLOCKED (Level $blockLevel)")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to show overlay", e)
             }

@@ -63,6 +63,23 @@ class OverlayView(context: Context) : FrameLayout(context) {
     }
     
     /**
+     * Show overlay with specific block level
+     * @param packageName The package name of the blocked app
+     * @param blockLevel The block level (1=nudge, 2=challenge, 3=hard block)
+     */
+    fun showOverlay(packageName: String, blockLevel: Int) {
+        // For Phase 3.1, just update the text to show block level
+        // In Phase 3.2, we'll implement different UI for each level
+        val levelText = when (blockLevel) {
+            1 -> "NUDGE MODE"
+            2 -> "CHALLENGE MODE" 
+            3 -> "HARD BLOCK"
+            else -> "BLOCKED"
+        }
+        blockingTextView.text = "FOCUSGUARD: $packageName\n$levelText (Level $blockLevel)"
+    }
+    
+    /**
      * CRITICAL WindowManager flags to prevent self-triggering loop:
      * 
      * FLAG_NOT_FOCUSABLE: Window will not receive input focus (KEEPS infinite loop fix)

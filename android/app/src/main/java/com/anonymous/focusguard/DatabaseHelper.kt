@@ -22,7 +22,11 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
         
         // Database Info
         const val DATABASE_NAME = "focusguard.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
+        
+        // Table: BypassRecords
+        const val TABLE_BYPASS_RECORDS = "BypassRecords"
+        const val COLUMN_EXPIRY_TIMESTAMP = "expiryTimestamp"
         
         // Table: AppRules
         const val TABLE_APP_RULES = "AppRules"
@@ -57,16 +61,36 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
             )
         """.trimIndent()
         
+        // Create BypassRecords table
+        val createBypassRecordsTable = """
+            CREATE TABLE $TABLE_BYPASS_RECORDS (
+                $COLUMN_PACKAGE_NAME TEXT PRIMARY KEY,
+                $COLUMN_EXPIRY_TIMESTAMP INTEGER
+            )
+        """.trimIndent()
+        
         db.execSQL(createAppRulesTable)
-        Log.d(TAG, "AppRules table created successfully")
+        db.execSQL(createBypassRecordsTable)
+        Log.d(TAG, "Database tables created successfully")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         Log.d(TAG, "Upgrading database from version $oldVersion to $newVersion")
-        // For now, we'll recreate the table on upgrade
-        // In production, we would migrate data properly
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_APP_RULES")
-        onCreate(db)
+        
+        when (oldVersion) {
+            1 -> {
+                // Version 1 to 2: Add BypassRecords table
+                val createBypassRecordsTable = """
+                    CREATE TABLE $TABLE_BYPASS_RECORDS (
+                        $COLUMN_PACKAGE_NAME TEXT PRIMARY KEY,
+                        $COLUMN_EXPIRY_TIMESTAMP INTEGER
+                    )
+                """.trimIndent()
+                db.execSQL(createBypassRecordsTable)
+                Log.d(TAG, "Added BypassRecords table for version 2")
+            }
+            // Add more migration steps for future versions here
+        }
     }
 
     /**
@@ -197,5 +221,125 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
      */
     fun isBlocked(packageName: String): Boolean {
         return getRuleLevel(packageName) > LEVEL_NONE
+    }
+
+    /**
+     * Grant a temporary bypass for an app
+     * @param packageName The package name to grant bypass for
+     * @param durationMinutes Duration of bypass in minutes
+     * @return true if successful, false otherwise
+     */
+    fun grantBypass(packageName: String, durationMinutes: Int): Boolean {
+        return try {
+            val db = writableDatabase
+            val expiryTimestamp = System.currentTimeMillis() + (durationMinutes * 60 * 1000L)
+            
+            val values = ContentValues().apply {
+                put(COLUMN_PACKAGE_NAME, packageName)
+                put(COLUMN_EXPIRY_TIMESTAMP, expiryTimestamp)
+            }
+            
+            // Use INSERT OR REPLACE to handle both insert and update
+            val result = db.insertWithOnConflict(
+                TABLE_BYPASS_RECORDS,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_REPLACE
+            )
+            
+            Log.d(TAG, "Granted bypass for $packageName: duration=$durationMinutes minutes, expiry=$expiryTimestamp, result=$result")
+            result != -1L
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to grant bypass for $packageName", e)
+            false
+        }
+    }
+
+    /**
+     * Get the expiry timestamp for a bypass record
+     * @param packageName The package name to check
+     * @return The expiry timestamp in milliseconds, or 0 if no valid bypass exists
+     */
+    fun getBypassExpiry(packageName: String): Long {
+        return try {
+            val db = readableDatabase
+            val cursor = db.query(
+                TABLE_BYPASS_RECORDS,
+                arrayOf(COLUMN_EXPIRY_TIMESTAMP),
+                "$COLUMN_PACKAGE_NAME = ?",
+                arrayOf(packageName),
+                null, null, null
+            )
+            
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val expiryTimestamp = it.getLong(it.getColumnIndexOrThrow(COLUMN_EXPIRY_TIMESTAMP))
+                    Log.d(TAG, "Bypass expiry for $packageName: $expiryTimestamp")
+                    expiryTimestamp
+                } else {
+                    Log.d(TAG, "No bypass found for $packageName, returning 0")
+                    0L
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get bypass expiry for $packageName", e)
+            0L
+        }
+    }
+
+    /**
+     * Clear expired bypass records from the database
+     * @return Number of expired records cleared
+     */
+    fun clearExpiredBypasses(): Int {
+        return try {
+            val db = writableDatabase
+            val currentTime = System.currentTimeMillis()
+            val result = db.delete(
+                TABLE_BYPASS_RECORDS,
+                "$COLUMN_EXPIRY_TIMESTAMP < ?",
+                arrayOf(currentTime.toString())
+            )
+            
+            Log.d(TAG, "Cleared $result expired bypass records")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear expired bypasses", e)
+            0
+        }
+    }
+
+    /**
+     * Get all valid (non-expired) bypass records
+     * @return Map of packageName to expiryTimestamp for all valid bypasses
+     */
+    fun getAllValidBypasses(): Map<String, Long> {
+        val bypasses = mutableMapOf<String, Long>()
+        
+        try {
+            val db = readableDatabase
+            val currentTime = System.currentTimeMillis()
+            val cursor = db.query(
+                TABLE_BYPASS_RECORDS,
+                arrayOf(COLUMN_PACKAGE_NAME, COLUMN_EXPIRY_TIMESTAMP),
+                "$COLUMN_EXPIRY_TIMESTAMP >= ?",
+                arrayOf(currentTime.toString()),
+                null, null, null
+            )
+            
+            cursor.use {
+                while (it.moveToNext()) {
+                    val packageName = it.getString(it.getColumnIndexOrThrow(COLUMN_PACKAGE_NAME))
+                    val expiryTimestamp = it.getLong(it.getColumnIndexOrThrow(COLUMN_EXPIRY_TIMESTAMP))
+                    bypasses[packageName] = expiryTimestamp
+                }
+            }
+            
+            Log.d(TAG, "Retrieved ${bypasses.size} valid bypass records")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get all valid bypasses", e)
+        }
+        
+        return bypasses
     }
 }
