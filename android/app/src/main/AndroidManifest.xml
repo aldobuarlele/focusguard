@@ -8,6 +8,7 @@
   <!-- Additional permissions for FocusGuard -->
   <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   
   <queries>
     <intent>
@@ -54,6 +55,11 @@
         <action android:name="com.focusguard.ACTION_HIDE_OVERLAY" />
       </intent-filter>
     </service>
+    
+    <!-- Notification Cleanup Receiver -->
+    <receiver
+      android:name=".NotificationCleanupReceiver"
+      android:exported="false" />
     
   </application>
 </manifest>

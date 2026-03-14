@@ -27,6 +27,10 @@ class OverlayView(context: Context) : FrameLayout(context) {
     private var onBypassRequested: ((Int) -> Unit)? = null
     private var onGoHome: (() -> Unit)? = null
     
+    // Dynamic durations for bypass levels
+    private var level1Duration: Int = 5  // Default 5 minutes
+    private var level2Duration: Int = 15 // Default 15 minutes
+    
     // For Level 2 (Gamification)
     private var mathAnswer: String = ""
     private var correctAnswer: Int = 0
@@ -56,12 +60,16 @@ class OverlayView(context: Context) : FrameLayout(context) {
      * Show overlay with specific block level and callbacks
      * @param packageName The package name of the blocked app
      * @param blockLevel The block level (1=nudge, 2=challenge, 3=hard block)
+     * @param durationL1 Duration in minutes for Level 1 bypass
+     * @param durationL2 Duration in minutes for Level 2 bypass
      * @param onBypassRequested Callback when user requests bypass with duration in minutes
      * @param onGoHome Callback when user wants to go home
      */
     fun showOverlay(
         packageName: String, 
         blockLevel: Int, 
+        durationL1: Int,
+        durationL2: Int,
         onBypassRequested: (Int) -> Unit,
         onGoHome: () -> Unit
     ) {
@@ -69,6 +77,10 @@ class OverlayView(context: Context) : FrameLayout(context) {
         this.currentBlockLevel = blockLevel
         this.onBypassRequested = onBypassRequested
         this.onGoHome = onGoHome
+        
+        // Store durations for UI generation
+        this.level1Duration = durationL1
+        this.level2Duration = durationL2
         
         // Remove all existing views
         removeAllViews()
@@ -127,14 +139,14 @@ class OverlayView(context: Context) : FrameLayout(context) {
             }
         }
         
-        // "Lanjutkan (5 Menit)" Button (Bypass for 5 minutes)
+        // "Lanjutkan (X Menit)" Button (Bypass for dynamic duration)
         val continueButton = Button(context).apply {
-            text = "Lanjutkan (5 Menit)"
+            text = "Lanjutkan ($level1Duration Menit)"
             textSize = 18f
             setBackgroundColor(Color.parseColor("#4CAF50"))
             setTextColor(Color.WHITE)
             setOnClickListener {
-                onBypassRequested?.invoke(5)
+                onBypassRequested?.invoke(level1Duration)
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -178,7 +190,7 @@ class OverlayView(context: Context) : FrameLayout(context) {
         
         // Instruction TextView
         val instructionText = TextView(context).apply {
-            text = "Selesaikan untuk akses 15 Menit:"
+            text = "Selesaikan untuk akses $level2Duration Menit:"
             textSize = 20f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -261,8 +273,8 @@ class OverlayView(context: Context) : FrameLayout(context) {
                 if (mathAnswer.isNotEmpty()) {
                     val userAnswer = mathAnswer.toIntOrNull()
                     if (userAnswer == correctAnswer) {
-                        // Correct answer - grant 15 minute bypass
-                        onBypassRequested?.invoke(15)
+                        // Correct answer - grant dynamic duration bypass
+                        onBypassRequested?.invoke(level2Duration)
                     } else {
                         // Wrong answer - clear and show error
                         mathAnswer = ""

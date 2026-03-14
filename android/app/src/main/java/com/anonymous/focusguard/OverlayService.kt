@@ -126,11 +126,20 @@ class OverlayService : Service() {
                 // Get display name for the app
                 val displayName = APP_DISPLAY_NAMES[packageName] ?: packageName
                 
-                // Create and setup overlay view with block level and callbacks
+                // Read bypass durations from SharedPreferences (same as FocusGuardModule)
+                val prefs = getSharedPreferences("focusguard_prefs", Context.MODE_PRIVATE)
+                val level1Duration = prefs.getInt("level1_duration", 5)  // Default 5 minutes
+                val level2Duration = prefs.getInt("level2_duration", 15) // Default 15 minutes
+                
+                Log.d(TAG, "Bypass durations from SharedPreferences: level1=$level1Duration, level2=$level2Duration")
+                
+                // Create and setup overlay view with block level, durations, and callbacks
                 overlayView = OverlayView(this).apply {
                     showOverlay(
                         packageName = packageName,
                         blockLevel = blockLevel,
+                        durationL1 = level1Duration,
+                        durationL2 = level2Duration,
                         onBypassRequested = { duration ->
                             // Send GRANT_BYPASS intent to AccessibilityDetectionService
                             Log.d(TAG, "Bypass requested for $packageName, duration: $duration minutes")
@@ -159,7 +168,7 @@ class OverlayService : Service() {
                 isOverlayShowing = true
                 currentBlockedApp = packageName
                 
-                Log.d(TAG, "✅ OVERLAY SHOWN - FOCUSGUARD: $displayName BLOCKED (Level $blockLevel)")
+                Log.d(TAG, "✅ OVERLAY SHOWN - FOCUSGUARD: $displayName BLOCKED (Level $blockLevel) with durations: L1=$level1Duration, L2=$level2Duration")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to show overlay", e)
             }

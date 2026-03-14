@@ -2,6 +2,7 @@ package com.anonymous.focusguard
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.provider.Settings
@@ -14,6 +15,13 @@ class FocusGuardModule(reactContext: ReactApplicationContext) : ReactContextBase
     companion object {
         private const val TAG = "FocusGuardModule"
         private const val MODULE_NAME = "FocusGuardNative"
+        
+        // SharedPreferences keys for bypass durations
+        private const val PREFS_NAME = "focusguard_prefs"
+        private const val KEY_LEVEL1_DURATION = "level1_duration"
+        private const val KEY_LEVEL2_DURATION = "level2_duration"
+        private const val DEFAULT_LEVEL1_DURATION = 5  // 5 minutes default
+        private const val DEFAULT_LEVEL2_DURATION = 15 // 15 minutes default
     }
     
     private val appContext: Context = reactContext.applicationContext
@@ -21,6 +29,11 @@ class FocusGuardModule(reactContext: ReactApplicationContext) : ReactContextBase
     // Native Database Helper - accessible by services even when JS is dead
     private val dbHelper: DatabaseHelper by lazy {
         DatabaseHelper.getInstance(appContext)
+    }
+    
+    // SharedPreferences for bypass duration settings
+    private val prefs: SharedPreferences by lazy {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
     
     override fun getName(): String {
@@ -372,5 +385,87 @@ class FocusGuardModule(reactContext: ReactApplicationContext) : ReactContextBase
             putDouble("timestamp", System.currentTimeMillis().toDouble())
         }
         sendEvent("onOverlayHidden", params)
+    }
+    
+    // MARK: - Bypass Duration Methods (Phase 3)
+    
+    /**
+     * Set bypass duration for a specific level
+     * 
+     * @param level The bypass level (1 or 2)
+     * @param durationMinutes Duration in minutes
+     * @param promise Returns true if successful
+     */
+    @ReactMethod
+    fun setBypassDuration(level: Int, durationMinutes: Int, promise: Promise) {
+        Log.d(TAG, "Setting bypass duration: level=$level, duration=$durationMinutes minutes")
+        
+        try {
+            when (level) {
+                1 -> prefs.edit().putInt(KEY_LEVEL1_DURATION, durationMinutes).apply()
+                2 -> prefs.edit().putInt(KEY_LEVEL2_DURATION, durationMinutes).apply()
+                else -> {
+                    promise.reject("INVALID_LEVEL", "Invalid bypass level: $level. Must be 1 or 2.")
+                    return
+                }
+            }
+            
+            Log.d(TAG, "Bypass duration set successfully for level $level: $durationMinutes minutes")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set bypass duration", e)
+            promise.reject("SET_BYPASS_DURATION_FAILED", "Failed to set bypass duration: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get bypass durations for both levels
+     * 
+     * @param promise Returns WritableMap with level1_duration and level2_duration
+     */
+    @ReactMethod
+    fun getBypassDurations(promise: Promise) {
+        Log.d(TAG, "Getting bypass durations")
+        
+        try {
+            val level1Duration = prefs.getInt(KEY_LEVEL1_DURATION, DEFAULT_LEVEL1_DURATION)
+            val level2Duration = prefs.getInt(KEY_LEVEL2_DURATION, DEFAULT_LEVEL2_DURATION)
+            
+            val durationsMap = Arguments.createMap().apply {
+                putInt("level1_duration", level1Duration)
+                putInt("level2_duration", level2Duration)
+            }
+            
+            Log.d(TAG, "Bypass durations retrieved: level1=$level1Duration, level2=$level2Duration")
+            promise.resolve(durationsMap)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get bypass durations", e)
+            promise.reject("GET_BYPASS_DURATIONS_FAILED", "Failed to get bypass durations: ${e.message}")
+        }
+    }
+    
+    /**
+     * Get all active bypasses (non-expired)
+     * 
+     * @param promise Returns WritableMap of packageName -> expiryTimestamp
+     */
+    @ReactMethod
+    fun getActiveBypasses(promise: Promise) {
+        Log.d(TAG, "Getting active bypasses")
+        
+        try {
+            val activeBypasses = dbHelper.getAllValidBypasses()
+            val bypassesMap = Arguments.createMap()
+            
+            for ((packageName, expiryTimestamp) in activeBypasses) {
+                bypassesMap.putDouble(packageName, expiryTimestamp.toDouble())
+            }
+            
+            Log.d(TAG, "Retrieved ${activeBypasses.size} active bypasses")
+            promise.resolve(bypassesMap)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get active bypasses", e)
+            promise.reject("GET_ACTIVE_BYPASSES_FAILED", "Failed to get active bypasses: ${e.message}")
+        }
     }
 }

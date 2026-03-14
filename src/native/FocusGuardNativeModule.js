@@ -272,6 +272,70 @@ class FocusGuardNativeModule {
       throw error;
     }
   }
+
+  // MARK: - Bypass Duration Methods (Phase 3)
+
+  /**
+   * Set bypass duration for a specific level
+   * @param {number} level - The bypass level (1 or 2)
+   * @param {number} durationMinutes - Duration in minutes
+   * @returns {Promise<boolean>} - True if successful
+   */
+  async setBypassDuration(level, durationMinutes) {
+    if (Platform.OS !== 'android') {
+      console.warn('FocusGuard only works on Android');
+      return false;
+    }
+
+    try {
+      const result = await NativeModule.setBypassDuration(level, durationMinutes);
+      console.log(`Set bypass duration for level ${level}: ${durationMinutes} minutes`);
+      return result;
+    } catch (error) {
+      console.error(`Failed to set bypass duration for level ${level}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get bypass durations for both levels
+   * @returns {Promise<{level1_duration: number, level2_duration: number}>}
+   */
+  async getBypassDurations() {
+    if (Platform.OS !== 'android') {
+      console.warn('FocusGuard only works on Android');
+      return { level1_duration: 5, level2_duration: 15 };
+    }
+
+    try {
+      const durations = await NativeModule.getBypassDurations();
+      console.log(`Bypass durations: level1=${durations.level1_duration}, level2=${durations.level2_duration}`);
+      return durations;
+    } catch (error) {
+      console.error('Failed to get bypass durations:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all active bypasses (non-expired)
+   * @returns {Promise<Object>} - Map of packageName -> expiryTimestamp (milliseconds)
+   */
+  async getActiveBypasses() {
+    if (Platform.OS !== 'android') {
+      console.warn('FocusGuard only works on Android');
+      return {};
+    }
+
+    try {
+      const bypasses = await NativeModule.getActiveBypasses();
+      console.log(`Retrieved ${Object.keys(bypasses).length} active bypasses`);
+      return bypasses;
+    } catch (error) {
+      console.error('Failed to get active bypasses:', error);
+      throw error;
+    }
+  }
 }
 
 // Create and export singleton instance
