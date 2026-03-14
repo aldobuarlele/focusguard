@@ -1,10 +1,10 @@
 # FocusGuard
 
-A high-performance digital wellbeing Android application engineered to enforce intelligent app-blocking through an event-driven architecture. The system combines React Native UI capabilities with deep native Android OS integration, processing all logic locally for maximum privacy and zero-latency enforcement.
+A high-performance digital wellbeing Android application engineered to enforce intelligent app-blocking through a pure event-driven architecture. The system combines React Native UI capabilities with deep native Android OS integration, processing all logic locally for maximum privacy and zero-latency enforcement.
 
 ## Overview
 
-FocusGuard intercepts target application access at the operating system level using a sophisticated hybrid architecture. The application leverages Android's `AccessibilityService` for real-time foreground detection and `SYSTEM_ALERT_WINDOW` for overlay rendering, implementing an advanced state machine that handles Android's complex activity lifecycle edge cases.
+FocusGuard intercepts target application access at the operating system level using a sophisticated hybrid architecture. The application leverages Android's `AccessibilityService` for real-time foreground detection and `SYSTEM_ALERT_WINDOW` for overlay rendering, implementing an advanced state machine that handles Android's complex activity lifecycle edge cases without resorting to battery-draining polling mechanisms.
 
 ## Architecture & Tech Stack
 
@@ -18,11 +18,12 @@ FocusGuard intercepts target application access at the operating system level us
 
 ### Native SQLite Engine
 
-Phase 2 introduced a **Native SQLite Engine** (`DatabaseHelper.kt`) that executes directly in the Kotlin layer. This architectural decision provides critical performance advantages:
+Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that executes directly in the Kotlin layer. This architectural decision completely decouples the blocker from the React Native JavaScript thread:
 
 - **O(1) Query Performance** — Database operations execute on the native thread, bypassing React Native's JavaScript bridge entirely
-- **Background Thread Safety** — `AccessibilityService` can query blocking rules without marshalling data through the JS runtime
-- **Zero-Latency Enforcement** — Blocking decisions are made in microseconds, not milliseconds
+- **Background Thread Safety** — `AccessibilityService` queries blocking rules directly without marshalling data through the JS runtime
+- **Zero-Latency Enforcement** — Blocking decisions execute in microseconds, ensuring the overlay appears before the target app renders
+- **UI-Independent Operation** — The blocker remains functional even when the React Native UI process is terminated by Android
 
 ### Core OS APIs
 
@@ -35,7 +36,8 @@ Phase 2 introduced a **Native SQLite Engine** (`DatabaseHelper.kt`) that execute
 
 ## Current Status
 
-> **✓ Phase 2 Complete** — Data Persistence & UI Dashboard Operational
+> **✓ Phase 2 Complete** — Data Persistence & UI Dashboard Operational  
+> **→ Ready for Phase 3:** Gamification & Blocker Logic Implementation
 
 ### Phase 1: Native OS Foundation ✓
 
@@ -57,14 +59,15 @@ Implemented the complete data layer and React Native dashboard bridge:
 
 #### Advanced Event-Driven State Machine
 
-The `AccessibilityDetectionService` implements a sophisticated state machine that solves critical Android OS edge cases:
+The `AccessibilityDetectionService` implements a sophisticated state machine that solves critical Android OS edge cases without polling:
 
 | Challenge | Solution |
 |-----------|----------|
-| **Android 11+ Package Visibility** | `<queries>` manifest declarations + graceful fallback for restricted packages |
-| **Full-Screen Rendering Paradox** | `rootInActiveWindow` verification before overlay dispatch — eliminates zombie overlays |
-| **Quick-Switch Bypass Attempts** | `TYPE_WINDOWS_CHANGED` event monitoring catches rapid app transitions that `TYPE_WINDOW_STATE_CHANGED` misses |
+| **Android 11+ Package Visibility** | `<queries>` manifest declarations with `intent.action.MAIN` + graceful fallback for restricted packages |
+| **Full-Screen Rendering Paradox** | `rootInActiveWindow` verification before overlay dispatch — eliminates zombie overlays caused by background content changes |
+| **Quick-Switch Bypass Attempts** | `TYPE_WINDOWS_CHANGED` event monitoring catches rapid app transitions via Recent Apps that `TYPE_WINDOW_STATE_CHANGED` misses |
 | **Duplicate Event Suppression** | `lastDetectedPackage` state tracking prevents redundant overlay triggers |
+| **No Polling Debouncers** | Pure state machine logic — no `Handler` delays or timers that drain battery |
 
 #### React Native Bridge
 - `FocusGuardModule.kt` — Native module exposing `getInstalledApps()`, `addBlockedApp()`, `removeBlockedApp()`, `getBlockedApps()`
@@ -75,7 +78,7 @@ The `AccessibilityDetectionService` implements a sophisticated state machine tha
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| Phase 3 | Leveling Logic (Nudge → Gamification → Hard Block) | Pending |
+| Phase 3 | Leveling Logic (Nudge → Gamification → Hard Block) | **Next** |
 | Phase 4 | Anti-Tampering Security & WorkManager Jobs | Pending |
 | Phase 5 | Edge Cases, Boot Receiver, Battery Optimization Onboarding | Pending |
 
@@ -98,9 +101,10 @@ if (rootNode == null) {
     // Window not ready — skip overlay to prevent zombie renders
     return
 }
+val packageName = rootNode.packageName?.toString()
 ```
 
-This verification prevents overlay dispatch when Android reports package changes but the window isn't fully rendered, solving the "zombie overlay" problem where overlays would appear over the wrong application.
+This verification prevents overlay dispatch when Android reports package changes but the window isn't fully rendered. It solves the "zombie overlay" problem where overlays would appear over the wrong application during background animations.
 
 ### TYPE_WINDOWS_CHANGED for Quick-Switch Detection
 
@@ -113,7 +117,11 @@ override fun onAccessibilityEvent(event: AccessibilityEvent?) {
 }
 ```
 
-Monitoring `TYPE_WINDOWS_CHANGED` catches rapid app switches (e.g., double-tap recent apps) that bypass `TYPE_WINDOW_STATE_CHANGED` events, closing a common user bypass vector.
+Monitoring `TYPE_WINDOWS_CHANGED` catches rapid app switches (e.g., double-tap Recent Apps) that bypass `TYPE_WINDOW_STATE_CHANGED` events, closing a common user bypass vector without requiring any polling.
+
+### Why Not TYPE_WINDOW_CONTENT_CHANGED?
+
+Listening to `TYPE_WINDOW_CONTENT_CHANGED` is explicitly forbidden in this architecture. This event fires during background animations and content updates, causing overlays to appear on already-dismissed applications — the root cause of zombie overlays.
 
 ## Getting Started
 
@@ -165,7 +173,7 @@ focusguard/
 │       ├── FocusGuardNativeModule.js         # JS bridge interface
 │       └── index.js                          # Module exports
 ├── App.js                                    # React Native dashboard
-├── FOCUSGUARD_CORE.md                        # Technical specification
+├── FOCUSGUARD_CORE.md                        # Technical specification (v3.1)
 └── README.md                                 # This document
 ```
 
@@ -174,9 +182,10 @@ focusguard/
 - All OS-level logic must be implemented in native Kotlin
 - React Native layer handles UI rendering and state only
 - Use relative paths from project root (never absolute paths)
-- Follow event-driven architecture — avoid polling mechanisms
+- Follow event-driven architecture — avoid polling mechanisms and Handler debouncers
 - Services must implement self-cleanup on UI restart
 - Database queries from services must use native SQLite, not JS bridge
+- Never listen to `TYPE_WINDOW_CONTENT_CHANGED` — it causes zombie overlays
 
 ## License
 
