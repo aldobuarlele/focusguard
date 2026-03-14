@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FocusGuard Device Admin Policy Configuration
+    
+    This makes FocusGuard a Device Administrator, which:
+    1. Prevents standard uninstallation (user must deactivate admin first)
+    2. Shows a warning dialog when user tries to deactivate
+    
+    We keep policies minimal - just enough to be a valid admin.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <!-- force-lock is the most minimal policy that makes this a valid admin -->
+        <!-- We don't actually use it, but it's required to have at least one policy -->
+        <force-lock />
+    </uses-policies>
+</device-admin>

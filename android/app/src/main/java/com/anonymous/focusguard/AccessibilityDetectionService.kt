@@ -78,7 +78,7 @@ class AccessibilityDetectionService : AccessibilityService() {
         // Load all valid bypasses from database into cache to survive service restarts
         loadBypassesIntoCache()
         
-        // CRITICAL: Reset state on service (re)start
+        // CRITICAL: Reset state on service (re)start to force re-evaluation
         currentForegroundApp = null
         Log.d(TAG, "State reset: currentForegroundApp = null")
         
@@ -110,6 +110,36 @@ class AccessibilityDetectionService : AccessibilityService() {
         
         // Create notification channel for bypass notifications
         createNotificationChannel()
+        
+        // CRITICAL SELF-HEALING: Immediately check current foreground app on service restart
+        // This fixes the bug where overlay doesn't re-appear after app is swiped from recents
+        performSelfHealingCheck()
+    }
+    
+    /**
+     * SELF-HEALING CHECK: Immediately detect current foreground app on service restart
+     * 
+     * When FocusGuard is swiped from recents and Android restarts AccessibilityService,
+     * the in-memory state is cleared. This method checks what app the user is currently
+     * looking at and re-triggers blocking if needed.
+     */
+    private fun performSelfHealingCheck() {
+        try {
+            // Get the current active window's package name
+            val currentWindowPackage = rootInActiveWindow?.packageName?.toString()
+            
+            if (currentWindowPackage != null) {
+                Log.d(TAG, "SELF-HEALING: Detected current foreground app: $currentWindowPackage")
+                
+                // Use the existing state machine to evaluate and potentially block
+                // Pass TYPE_WINDOWS_CHANGED (0) since we're detecting window state
+                handleForegroundAppChange(currentWindowPackage, AccessibilityEvent.TYPE_WINDOWS_CHANGED)
+            } else {
+                Log.d(TAG, "SELF-HEALING: No active window detected (home screen or lockscreen)")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "SELF-HEALING: Failed to check current foreground app", e)
+        }
     }
     
     

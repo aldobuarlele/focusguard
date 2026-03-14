@@ -207,20 +207,18 @@ class OverlayService : Service() {
     }
     
     /**
-     * CRITICAL BUG 2 FIX: Handle app process being killed
+     * CRITICAL FIX: Do NOT kill service when app is swiped from recents!
      * 
-     * When the FocusGuard app is swiped away from recents or killed by the system,
-     * this callback is triggered. We must clean up the overlay to prevent "zombie overlay".
+     * When the FocusGuard app is swiped away from recents, the app process dies BUT
+     * we want this service to SURVIVE. Android will restart it due to START_STICKY.
+     * 
+     * DO NOT call stopSelf() here - that prevents the service from being revived!
+     * DO NOT hide overlay here - AccessibilityService will re-trigger if needed.
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
-        Log.d(TAG, "onTaskRemoved: App process is being killed - cleaning up overlay")
-        
-        // Hide overlay immediately to prevent zombie overlay
-        hideOverlay()
-        
-        // Stop this service since the app is being removed
-        stopSelf()
-        
+        Log.d(TAG, "onTaskRemoved: App swiped from recents - SERVICE WILL SURVIVE (zombie mode)")
+        // DO NOT call hideOverlay() - let AccessibilityService manage overlay state
+        // DO NOT call stopSelf() - service must survive to be restarted
         super.onTaskRemoved(rootIntent)
     }
     

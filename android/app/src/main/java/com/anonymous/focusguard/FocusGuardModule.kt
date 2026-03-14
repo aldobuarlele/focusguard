@@ -1,5 +1,7 @@
 package com.anonymous.focusguard
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -466,6 +468,67 @@ class FocusGuardModule(reactContext: ReactApplicationContext) : ReactContextBase
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get active bypasses", e)
             promise.reject("GET_ACTIVE_BYPASSES_FAILED", "Failed to get active bypasses: ${e.message}")
+        }
+    }
+    
+    // MARK: - Device Admin Methods (Phase 4)
+    
+    /**
+     * Get the current Device Admin activation status
+     * 
+     * @param promise Returns WritableMap with boolean isActive
+     */
+    @ReactMethod
+    fun getDeviceAdminStatus(promise: Promise) {
+        Log.d(TAG, "Getting Device Admin status")
+        
+        try {
+            val devicePolicyManager = appContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val componentName = ComponentName(appContext, FocusGuardDeviceAdminReceiver::class.java)
+            
+            val isActive = devicePolicyManager.isAdminActive(componentName)
+            
+            val statusMap = Arguments.createMap().apply {
+                putBoolean("isActive", isActive)
+            }
+            
+            Log.d(TAG, "Device Admin status: isActive=$isActive")
+            promise.resolve(statusMap)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get Device Admin status", e)
+            promise.reject("GET_DEVICE_ADMIN_STATUS_FAILED", "Failed to get Device Admin status: ${e.message}")
+        }
+    }
+    
+    /**
+     * Request Device Admin activation
+     * This opens the system Device Admin activation dialog
+     * 
+     * @param promise Returns true if the intent was launched successfully
+     */
+    @ReactMethod
+    fun requestDeviceAdminActivation(promise: Promise) {
+        Log.d(TAG, "Requesting Device Admin activation")
+        
+        try {
+            val adminComponent = ComponentName(reactApplicationContext, FocusGuardDeviceAdminReceiver::class.java)
+            
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                putExtra(
+                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Required to prevent standard uninstallation of FocusGuard"
+                )
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) // CRITICAL for starting from context
+            }
+            
+            reactApplicationContext.startActivity(intent)
+            Log.d(TAG, "Device Admin activation dialog opened")
+            
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request Device Admin activation", e)
+            promise.reject("REQUEST_DEVICE_ADMIN_FAILED", "Failed to request Device Admin activation: ${e.message}")
         }
     }
 }
