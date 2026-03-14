@@ -126,9 +126,30 @@ class OverlayService : Service() {
                 // Get display name for the app
                 val displayName = APP_DISPLAY_NAMES[packageName] ?: packageName
                 
-                // Create and setup overlay view with block level
+                // Create and setup overlay view with block level and callbacks
                 overlayView = OverlayView(this).apply {
-                    showOverlay(packageName, blockLevel)
+                    showOverlay(
+                        packageName = packageName,
+                        blockLevel = blockLevel,
+                        onBypassRequested = { duration ->
+                            // Send GRANT_BYPASS intent to AccessibilityDetectionService
+                            Log.d(TAG, "Bypass requested for $packageName, duration: $duration minutes")
+                            val bypassIntent = Intent(this@OverlayService, AccessibilityDetectionService::class.java).apply {
+                                action = AccessibilityDetectionService.ACTION_GRANT_BYPASS
+                                putExtra(AccessibilityDetectionService.EXTRA_BYPASS_PACKAGE, packageName)
+                                putExtra(AccessibilityDetectionService.EXTRA_BYPASS_DURATION, duration)
+                            }
+                            startService(bypassIntent)
+                        },
+                        onGoHome = {
+                            // Send GO_HOME intent to AccessibilityDetectionService
+                            Log.d(TAG, "Go Home requested")
+                            val homeIntent = Intent(this@OverlayService, AccessibilityDetectionService::class.java).apply {
+                                action = AccessibilityDetectionService.ACTION_GO_HOME
+                            }
+                            startService(homeIntent)
+                        }
+                    )
                 }
                 
                 // Add overlay to window using CRITICAL non-touchable flags

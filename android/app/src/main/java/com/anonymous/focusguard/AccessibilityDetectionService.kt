@@ -27,6 +27,14 @@ class AccessibilityDetectionService : AccessibilityService() {
         
         // Action for resetting service state from FocusGuardModule
         const val ACTION_RESET_SERVICE = "com.focusguard.ACTION_RESET_SERVICE"
+        
+        // Action for granting bypass from OverlayService
+        const val ACTION_GRANT_BYPASS = "com.anonymous.focusguard.GRANT_BYPASS"
+        const val EXTRA_BYPASS_PACKAGE = "BYPASS_PACKAGE"
+        const val EXTRA_BYPASS_DURATION = "BYPASS_DURATION"
+        
+        // Action for going home (triggered from OverlayService)
+        const val ACTION_GO_HOME = "com.anonymous.focusguard.GO_HOME"
     }
     
     private var currentForegroundApp: String? = null
@@ -83,14 +91,51 @@ class AccessibilityDetectionService : AccessibilityService() {
     }
     
     /**
-     * Handle ACTION_RESET_SERVICE intent from FocusGuardModule
-     * This resets the service state when app is restarted
+     * Handle incoming intents from FocusGuardModule and OverlayService
+     * 
+     * Supported actions:
+     * - ACTION_RESET_SERVICE: Reset service state when app is restarted
+     * - ACTION_GRANT_BYPASS: Grant bypass for a package (from OverlayService)
+     * - ACTION_GO_HOME: Navigate to home screen (from OverlayService)
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_RESET_SERVICE) {
-            Log.d(TAG, "ACTION_RESET_SERVICE received - clearing state")
-            currentForegroundApp = null
-            hideOverlayDirectly()
+        when (intent?.action) {
+            ACTION_RESET_SERVICE -> {
+                Log.d(TAG, "ACTION_RESET_SERVICE received - clearing state")
+                currentForegroundApp = null
+                hideOverlayDirectly()
+            }
+            ACTION_GRANT_BYPASS -> {
+                val packageName = intent.getStringExtra(EXTRA_BYPASS_PACKAGE)
+                val durationMinutes = intent.getIntExtra(EXTRA_BYPASS_DURATION, 0)
+                
+                if (packageName != null && durationMinutes > 0) {
+                    Log.d(TAG, "ACTION_GRANT_BYPASS received - pkg: $packageName, duration: $durationMinutes min")
+                    
+                    // Step 1: Persist bypass to database
+                    databaseHelper.grantBypass(packageName, durationMinutes)
+                    
+                    // Step 2: Update in-memory cache for O(1) lookup
+                    val expiryTimestamp = System.currentTimeMillis() + (durationMinutes * 60 * 1000L)
+                    bypassCache[packageName] = expiryTimestamp
+                    Log.d(TAG, "Bypass granted until: $expiryTimestamp")
+                    
+                    // Step 3: Hide the overlay immediately
+                    hideOverlayDirectly()
+                    
+                    // Step 4: Reset current foreground to allow re-detection with bypass
+                    currentForegroundApp = null
+                } else {
+                    Log.w(TAG, "ACTION_GRANT_BYPASS received with invalid params - pkg: $packageName, duration: $durationMinutes")
+                }
+            }
+            ACTION_GO_HOME -> {
+                Log.d(TAG, "ACTION_GO_HOME received - navigating to home screen")
+                // Use AccessibilityService's performGlobalAction to go home
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                // Hide overlay after going home
+                hideOverlayDirectly()
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }
