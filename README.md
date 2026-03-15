@@ -120,6 +120,19 @@ The `AccessibilityDetectionService` implements a sophisticated state machine tha
 
 ## Technical Highlights
 
+### TYPE_WINDOWS_CHANGED for Quick-Switch Detection
+
+```kotlin
+override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    when (event?.eventType) {
+        AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> handleWindowStateChange(event)
+        AccessibilityEvent.TYPE_WINDOWS_CHANGED -> handleWindowsChanged()
+    }
+}
+```
+
+Monitoring `TYPE_WINDOWS_CHANGED` catches rapid app switches (e.g., double-tap Recent Apps) that bypass `TYPE_WINDOW_STATE_CHANGED` events, closing a common user bypass vector without requiring any polling.
+
 ### rootInActiveWindow Verification
 
 ```kotlin
@@ -133,19 +146,6 @@ val packageName = rootNode.packageName?.toString()
 ```
 
 This verification prevents overlay dispatch when Android reports package changes but the window isn't fully rendered. It solves the "zombie overlay" problem where overlays would appear over the wrong application during background animations.
-
-### TYPE_WINDOWS_CHANGED for Quick-Switch Detection
-
-```kotlin
-override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-    when (event?.eventType) {
-        AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> handleWindowStateChange(event)
-        AccessibilityEvent.TYPE_WINDOWS_CHANGED -> handleWindowsChanged()
-    }
-}
-```
-
-Monitoring `TYPE_WINDOWS_CHANGED` catches rapid app switches (e.g., double-tap Recent Apps) that bypass `TYPE_WINDOW_STATE_CHANGED` events, closing a common user bypass vector without requiring any polling.
 
 ### Why Not TYPE_WINDOW_CONTENT_CHANGED?
 
