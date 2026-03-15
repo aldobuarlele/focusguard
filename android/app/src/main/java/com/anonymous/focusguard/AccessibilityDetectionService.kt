@@ -9,6 +9,8 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -54,9 +56,35 @@ class AccessibilityDetectionService : AccessibilityService() {
         const val ACTION_CLEANUP_NOTIFICATION = "com.anonymous.focusguard.CLEANUP_NOTIFICATION"
         const val EXTRA_NOTIFICATION_ID = "NOTIFICATION_ID"
         const val EXTRA_CLEANUP_PACKAGE = "CLEANUP_PACKAGE"
+        
+        // PHASE 4: Settings Interceptor Constants
+        private const val MAX_TRAVERSAL_DEPTH = 5
     }
     
+    // Settings packages that could be used to uninstall/disable FocusGuard
+    private val SETTINGS_PACKAGES = setOf(
+        "com.android.settings",
+        "com.miui.securitycenter",
+        "com.coloros.securityguard",
+        "com.oneplus.security",
+        "com.samsung.android.lool"
+    )
+    
+    // Dangerous patterns - English + Indonesian (Localized)
+    // NO "security" or "administrator" to avoid false positives (e.g., fingerprint setup)
+    private val DANGEROUS_PATTERNS = listOf(
+        "focusguard",
+        "device admin", "admin perangkat",
+        "deactivate", "nonaktifkan",
+        "disable", 
+        "uninstall", "hapus", "copot",
+        "force stop", "paksa berhenti"
+    )
+    
     private var currentForegroundApp: String? = null
+    
+    // PHASE 4 FIX: State variable to prevent intent spamming in danger zone
+    private var isCurrentlyInDangerZone = false
     
     // Dynamic self-package name (fetched at runtime, not hardcoded)
     private lateinit var ourPackageName: String
@@ -189,22 +217,44 @@ class AccessibilityDetectionService : AccessibilityService() {
             return
         }
 
-        // Step 3: State Persistence (Battery Saver)
+        // 1. EARLY RETURN (MODIFIED FOR SETTINGS)
         if (trueForegroundPackage == currentForegroundApp) {
-            return // App hasn't changed, do nothing
+            // Ignore intra-app navigation FOR NORMAL APPS. Settings needs constant monitoring.
+            if (!SETTINGS_PACKAGES.contains(trueForegroundPackage)) {
+                return
+            }
         }
 
-        // Step 4: HYBRID BYPASS CHECK - O(1) cache lookup
-        val currentTime = System.currentTimeMillis()
-        val expiryTimestamp = bypassCache[trueForegroundPackage]
-        if (expiryTimestamp != null && currentTime < expiryTimestamp) {
-            Log.d(TAG, "Bypass active for $trueForegroundPackage, expiry: $expiryTimestamp, current: $currentTime")
-            currentForegroundApp = trueForegroundPackage // Update state
-            hideOverlayDirectly()
-            return // Allow access, skip blocking
+        // 2. HYBRID BYPASS CHECK (MUST HAPPEN BEFORE INTERCEPTION)
+        val expiry = bypassCache[trueForegroundPackage] ?: 0L
+        if (System.currentTimeMillis() < expiry) {
+            // Bypass is active! Let them access anything, even dangerous settings.
+            if (currentForegroundApp != trueForegroundPackage || isCurrentlyInDangerZone) {
+                hideOverlayDirectly()
+                currentForegroundApp = trueForegroundPackage
+                isCurrentlyInDangerZone = false
+            }
+            return
         }
 
-        // Step 5: Execute Overlay Logic
+        // 3. SMART SETTINGS INTERCEPTOR
+        if (SETTINGS_PACKAGES.contains(trueForegroundPackage)) {
+            if (checkSettingsInterception(rootInActiveWindow)) {
+                if (!isCurrentlyInDangerZone || currentForegroundApp != trueForegroundPackage) {
+                    Log.d(TAG, "DANGEROUS SETTINGS SCREEN DETECTED!")
+                    triggerOverlayDirectly(trueForegroundPackage!!, 2) // Level 2
+                    isCurrentlyInDangerZone = true
+                }
+                currentForegroundApp = trueForegroundPackage
+                return // Blocked! Stop here.
+            } else {
+                isCurrentlyInDangerZone = false // Safe settings screen
+            }
+        } else {
+            isCurrentlyInDangerZone = false
+        }
+
+        // 4. NORMAL DATABASE QUERY (AppRules check)
         val blockLevel = databaseHelper.getRuleLevel(trueForegroundPackage)
         currentForegroundApp = trueForegroundPackage // Update state
         
@@ -226,6 +276,73 @@ class AccessibilityDetectionService : AccessibilityService() {
             Log.d(TAG, "Loaded ${validBypasses.size} valid bypasses into cache")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load bypasses into cache", e)
+        }
+    }
+    
+    /**
+     * PHASE 4: SMART SETTINGS INTERCEPTOR
+     * 
+     * Uses Depth-Limited BFS to traverse the accessibility node tree and detect
+     * dangerous settings screens (e.g., Device Admin, Uninstall, Force Stop).
+     * 
+     * Algorithm: Breadth-First Search with MAX_TRAVERSAL_DEPTH = 5
+     * Checks: node.text and node.contentDescription against DANGEROUS_PATTERNS
+     * Localization: Supports English + Indonesian
+     * 
+     * @param rootNode The root AccessibilityNodeInfo from rootInActiveWindow
+     * @return true if dangerous settings screen detected, false otherwise
+     */
+    private fun checkSettingsInterception(rootNode: AccessibilityNodeInfo?): Boolean {
+        if (rootNode == null) return false
+        
+        try {
+            // BFS Queue: Pair of (node, currentDepth)
+            val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
+            queue.add(Pair(rootNode, 0))
+            
+            while (queue.isNotEmpty()) {
+                val (node, depth) = queue.poll() ?: continue
+                
+                // Depth limit reached - stop traversing deeper
+                if (depth > MAX_TRAVERSAL_DEPTH) continue
+                
+                // Check node.text for dangerous patterns
+                val nodeText = node.text?.toString()?.lowercase()
+                if (nodeText != null) {
+                    for (pattern in DANGEROUS_PATTERNS) {
+                        if (nodeText.contains(pattern, ignoreCase = true)) {
+                            Log.w(TAG, "INTERCEPTOR: Dangerous pattern '$pattern' found in text: $nodeText")
+                            return true
+                        }
+                    }
+                }
+                
+                // Check node.contentDescription for dangerous patterns
+                val nodeDesc = node.contentDescription?.toString()?.lowercase()
+                if (nodeDesc != null) {
+                    for (pattern in DANGEROUS_PATTERNS) {
+                        if (nodeDesc.contains(pattern, ignoreCase = true)) {
+                            Log.w(TAG, "INTERCEPTOR: Dangerous pattern '$pattern' found in contentDescription: $nodeDesc")
+                            return true
+                        }
+                    }
+                }
+                
+                // Add children to queue for BFS traversal
+                val childCount = node.childCount
+                for (i in 0 until childCount) {
+                    val child = node.getChild(i)
+                    if (child != null) {
+                        queue.add(Pair(child, depth + 1))
+                    }
+                }
+            }
+            
+            return false // No dangerous patterns found
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "INTERCEPTOR: Error during BFS traversal", e)
+            return false // Fail-safe: don't block on errors
         }
     }
 
