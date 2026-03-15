@@ -8,14 +8,6 @@ FocusGuard intercepts target application access at the operating system level us
 
 ## Architecture & Tech Stack
 
-### Hybrid Architecture with Heavy Native Modules
-
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| **UI / Frontend** | React Native (Expo Bare Workflow) | Dashboard rendering, state management, user interactions |
-| **Native Core** | Kotlin | OS-level services, event processing, SQLite operations |
-| **Data Persistence** | Native SQLite Engine | O(1) ultra-fast background queries without JS thread dependency |
-
 ### Native SQLite Engine
 
 Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that executes directly in the Kotlin layer. This architectural decision completely decouples the blocker from the React Native JavaScript thread:
@@ -24,6 +16,14 @@ Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that 
 - **Background Thread Safety** — `AccessibilityService` queries blocking rules directly without marshalling data through the JS runtime
 - **Zero-Latency Enforcement** — Blocking decisions execute in microseconds, ensuring the overlay appears before the target app renders
 - **UI-Independent Operation** — The blocker remains functional even when the React Native UI process is terminated by Android
+
+### Hybrid Architecture with Heavy Native Modules
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **UI / Frontend** | React Native (Expo Bare Workflow) | Dashboard rendering, state management, user interactions |
+| **Native Core** | Kotlin | OS-level services, event processing, SQLite operations |
+| **Data Persistence** | Native SQLite Engine | O(1) ultra-fast background queries without JS thread dependency |
 
 ### Core OS APIs
 
