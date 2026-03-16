@@ -13,16 +13,17 @@
 - **State Management:** Jika OS mematikan UI, pastikan *Service* di latar belakang memiliki mekanisme *Reset/Self-Clean* saat UI dihidupkan kembali.
 
 ## 2. SYSTEM ARCHITECTURE & TECH STACK
-Aplikasi ini menggunakan arsitektur **Hybrid dengan Heavy Native Modules** untuk menyeimbangkan kecepatan UI dan akses OS tingkat rendah.
-- **Frontend / UI Layer:** React Native (Expo Prebuild / Bare Workflow). Murni untuk *rendering* UI dan *State Management*.
-- **Native Android Layer (Backend of the App):** Java/Kotlin. Logika inti OS harus ditulis di sini dan dihubungkan ke UI via *React Native Bridge*.
-- **Local Database:** Native Android SQLite (Vanilla `SQLiteOpenHelper` atau `Room`). **DILARANG** menggunakan JS-based SQLite (`expo-sqlite`) agar *Background Service* OS bisa langsung membaca database saat UI mati. Semua data menetap di HP pengguna.
-  - *Core Tables:* `AppRules` (Target App ID, Level, Max Duration), `UsageLogs` (Date, App ID, Duration), `ChallengeBank` (Tanya-Jawab Sejarah/Math).
 - **Core OS APIs (Non-Negotiable):**
   1. `AccessibilityService`: Membaca aktivitas layar (*foreground app*) secara *real-time*.
   2. `SYSTEM_ALERT_WINDOW`: Menggambar *Overlay UI* di atas aplikasi target.
   3. `DevicePolicyManager` (Device Admin): Mencegah aplikasi di-*uninstall* lewat Settings Android.
   4. `WorkManager`: Mengeksekusi tugas *background* (Laporan mingguan & sinkronisasi log).
+ 
+Aplikasi ini menggunakan arsitektur **Hybrid dengan Heavy Native Modules** untuk menyeimbangkan kecepatan UI dan akses OS tingkat rendah.
+- **Frontend / UI Layer:** React Native (Expo Prebuild / Bare Workflow). Murni untuk *rendering* UI dan *State Management*.
+- **Native Android Layer (Backend of the App):** Java/Kotlin. Logika inti OS harus ditulis di sini dan dihubungkan ke UI via *React Native Bridge*.
+- **Local Database:** Native Android SQLite (Vanilla `SQLiteOpenHelper` atau `Room`). **DILARANG** menggunakan JS-based SQLite (`expo-sqlite`) agar *Background Service* OS bisa langsung membaca database saat UI mati. Semua data menetap di HP pengguna.
+  - *Core Tables:* `AppRules` (Target App ID, Level, Max Duration), `UsageLogs` (Date, App ID, Duration), `ChallengeBank` (Tanya-Jawab Sejarah/Math).
 
 ### 2.1 PHASE 1, 2, & 3 TECHNICAL LEDGER (DO NOT REGRESS)
 Aturan teknis yang sudah teruji berdarah-darah dan TIDAK BOLEH diubah oleh AI:
