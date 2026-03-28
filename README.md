@@ -13,13 +13,6 @@ Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that 
 - **Zero-Latency Enforcement** — Blocking decisions execute in microseconds, ensuring the overlay appears before the target app renders
 - **UI-Independent Operation** — The blocker remains functional even when the React Native UI process is terminated by Android
 
-### Hybrid Architecture with Heavy Native Modules
-
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| **UI / Frontend** | React Native (Expo Bare Workflow) | Dashboard rendering, state management, user interactions |
-| **Native Core** | Kotlin | OS-level services, event processing, SQLite operations |
-| **Data Persistence** | Native SQLite Engine | O(1) ultra-fast background queries without JS thread dependency |
 
 ### Core OS APIs
 
@@ -29,6 +22,14 @@ Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that 
 | `SYSTEM_ALERT_WINDOW` | `OverlayService.kt` + `OverlayView.kt` | Type-safe overlay rendering with correct WindowManager flags |
 | `DevicePolicyManager` | Phase 4 | Uninstall protection via Device Admin |
 | `WorkManager` | Phase 4 | Scheduled background tasks for weekly analytics |
+
+### Hybrid Architecture with Heavy Native Modules
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **UI / Frontend** | React Native (Expo Bare Workflow) | Dashboard rendering, state management, user interactions |
+| **Native Core** | Kotlin | OS-level services, event processing, SQLite operations |
+| **Data Persistence** | Native SQLite Engine | O(1) ultra-fast background queries without JS thread dependency |
 
 ## Overview
 
