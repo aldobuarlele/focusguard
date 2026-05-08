@@ -4,16 +4,6 @@ A high-performance digital wellbeing Android application engineered to enforce i
 
 ## Architecture & Tech Stack
 
-### Native SQLite Engine
-
-Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that executes directly in the Kotlin layer. This architectural decision completely decouples the blocker from the React Native JavaScript thread:
-
-- **O(1) Query Performance** — Database operations execute on the native thread, bypassing React Native's JavaScript bridge entirely
-- **Background Thread Safety** — `AccessibilityService` queries blocking rules directly without marshalling data through the JS runtime
-- **Zero-Latency Enforcement** — Blocking decisions execute in microseconds, ensuring the overlay appears before the target app renders
-- **UI-Independent Operation** — The blocker remains functional even when the React Native UI process is terminated by Android
-
-
 ### Core OS APIs
 
 | API | Implementation | Purpose |
@@ -22,6 +12,16 @@ Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that 
 | `SYSTEM_ALERT_WINDOW` | `OverlayService.kt` + `OverlayView.kt` | Type-safe overlay rendering with correct WindowManager flags |
 | `DevicePolicyManager` | Phase 4 | Uninstall protection via Device Admin |
 | `WorkManager` | Phase 4 | Scheduled background tasks for weekly analytics |
+
+### Native SQLite Engine
+
+Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that executes directly in the Kotlin layer. This architectural decision completely decouples the blocker from the React Native JavaScript thread:
+
+- **O(1) Query Performance** — Database operations execute on the native thread, bypassing React Native's JavaScript bridge entirely
+- **Background Thread Safety** — `AccessibilityService` queries blocking rules directly without marshalling data through the JS runtime
+- **Zero-Latency Enforcement** — Blocking decisions execute in microseconds, ensuring the overlay appears before the target app renders
+- **UI-Independent Operation** — The blocker remains functional even when the React Native UI process is terminated by Android
+- 
 
 ### Hybrid Architecture with Heavy Native Modules
 
