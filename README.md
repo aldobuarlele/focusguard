@@ -2,6 +2,10 @@
 
 A high-performance digital wellbeing Android application engineered to enforce intelligent app-blocking through a pure event-driven architecture. The system combines React Native UI capabilities with deep native Android OS integration, processing all logic locally for maximum privacy and zero-latency enforcement.
 
+## Overview
+
+FocusGuard intercepts target application access at the operating system level using a sophisticated hybrid architecture. The application leverages Android's `AccessibilityService` for real-time foreground detection and `SYSTEM_ALERT_WINDOW` for overlay rendering, implementing an advanced state machine that handles Android's complex activity lifecycle edge cases without resorting to battery-draining polling mechanisms.
+
 ## Architecture & Tech Stack
 
 ### Core OS APIs
@@ -30,10 +34,6 @@ Phase 2 introduced a robust **Native SQLite Engine** (`DatabaseHelper.kt`) that 
 | **UI / Frontend** | React Native (Expo Bare Workflow) | Dashboard rendering, state management, user interactions |
 | **Native Core** | Kotlin | OS-level services, event processing, SQLite operations |
 | **Data Persistence** | Native SQLite Engine | O(1) ultra-fast background queries without JS thread dependency |
-
-## Overview
-
-FocusGuard intercepts target application access at the operating system level using a sophisticated hybrid architecture. The application leverages Android's `AccessibilityService` for real-time foreground detection and `SYSTEM_ALERT_WINDOW` for overlay rendering, implementing an advanced state machine that handles Android's complex activity lifecycle edge cases without resorting to battery-draining polling mechanisms.
 
 ## Current Status
 
